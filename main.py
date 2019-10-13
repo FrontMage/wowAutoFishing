@@ -7,15 +7,11 @@ import cv2
 import mss
 import numpy as np
 import pyautogui
-from pynput.keyboard import Key, Controller
-
-keyboard = Controller()
 
 CHUNK_SIZE = 1024
 MIN_VOLUME = 1000
 # if the recording thread can't consume fast enough, the listener will start discarding
 BUF_MAX_SIZE = CHUNK_SIZE * 10
-
 
 def main():
     stopped = threading.Event()
@@ -36,16 +32,17 @@ def main():
     listen_t.join()
     record_t.join()
 
-def get_click_point():
+def get_click_point(target):
     # capture the positon of the float
-    for _ in range(10):
+    points = []
+    for _ in range(9):
         with  mss.mss() as sct:
             monitor = sct.monitors[0]
             time.sleep(0.1)
             img_rgb = np.array(sct.grab(monitor))
 
             img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
-            template = cv2.imread('float.png',0)
+            template = cv2.imread(target,0)
             w, h = template.shape[::-1]
 
             res = cv2.matchTemplate(img_gray,template,cv2.TM_CCOEFF_NORMED)
@@ -54,23 +51,23 @@ def get_click_point():
             bottom_right = (top_left[0] + w, top_left[1] + h)
 
             click_point = ((bottom_right[0] + top_left[0])/2, (bottom_right[1]+top_left[1])/2)
-    return click_point
+            points.append(click_point)
+            # debug_img(img_rgb, top_left, bottom_right)
+    points.sort(key=lambda tup:tup[0])
+    return points[5]
 
 def debug_img(img_rgb, top_left, bottom_right):
     cv2.rectangle(img_rgb, top_left, bottom_right, (0,0,255), 2)
-    while True:
-        cv2.imshow("Screenshot", img_rgb)
-        if cv2.waitKey(25) & 0xFF == ord("q"):
-            cv2.destroyAllWindows()
-            break
+    cv2.imwrite("debug.png", img_rgb)
 
 def start_fishing():
-    # start fishing wiht hotkey "z"
-    pyautogui.press("z")
+    click_point = get_click_point('fishing_skill.png')
+    click_the_bait(click_point)
 
 def click_the_bait(click_point):
     print(click_point)
     pyautogui.moveTo(click_point[0], click_point[1], 1, pyautogui.easeInOutQuad)
+    time.sleep(300/1000)
     pyautogui.click(button="right")
 
 def record(stopped, q):
@@ -78,11 +75,18 @@ def record(stopped, q):
     thresh_reach_count = 0
     start_fishing_time = time.time()
     max_inactive_sound_gap = 0
+    start_time = time.time()
     # give some time to switch window focus
     time.sleep(5)
     while True:
         if stopped.wait(timeout=0):
             break
+        # auto get bait buff
+        # if time.time()-start_time>60*10:
+        #     click_point = get_click_point('bait.png')
+        #     click_the_bait(click_point)
+        #     time.sleep(6)
+        #     start_time = time.time()
         # timeout after 30s, restart everything
         if time.time() - start_fishing_time > 30:
             is_fishing = False
@@ -92,19 +96,19 @@ def record(stopped, q):
             print("Start fishing")
             start_fishing()
             time.sleep(1)
-            click_point = get_click_point()
+            click_point = get_click_point('float3.png')
             is_fishing = True
         chunk = q.get()
         vol = max(chunk)
         if vol >= MIN_VOLUME:
             # ignore the first fishing sound
-            if time.time() - start_fishing_time > 5:
+            if time.time() - start_fishing_time > 10:
                 thresh_reach_count = thresh_reach_count+1
                 max_inactive_sound_gap = 0
                 print("O"),
         else:
             # only clears thresh after more than 15 no sound frame
-            if max_inactive_sound_gap > 15:
+            if max_inactive_sound_gap > 2048:
                 thresh_reach_count = 0
             # print("-")
             max_inactive_sound_gap = max_inactive_sound_gap + 1
